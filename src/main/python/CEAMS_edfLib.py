@@ -12,6 +12,7 @@ Created on Thu Oct 29 14:34:43 2020
 import numpy as np
 import sys
 import os
+import re
 
 def read_edf_header(fname, message_win):
     """Read header information from EDF+ based on https://www.edfplus.info/specs/edf.html
@@ -27,6 +28,43 @@ def read_edf_header(fname, message_win):
         each field of the edf header are saved in edf_info
         
     Usage : edf_info = read_edf_header(your_file.edf, message_win)
+
+
+    Additional information:
+
+    HEADER RECORD (we suggest to also adopt the 12 simple additional EDF+ specs)
+        8 ascii : version of this data format (0)
+        80 ascii : local patient identification (mind item 3 of the additional EDF+ specs)
+        80 ascii : local recording identification (mind item 4 of the additional EDF+ specs)
+        8 ascii : startdate of recording (dd.mm.yy) (mind item 2 of the additional EDF+ specs)
+        8 ascii : starttime of recording (hh.mm.ss)
+        8 ascii : number of bytes in header record
+        44 ascii : reserved
+        8 ascii : number of data records (-1 if unknown, obey item 10 of the additional EDF+ specs)
+        8 ascii : duration of a data record, in seconds
+        4 ascii : number of signals (ns) in data record
+        -> bytes = 256 bytes
+        ns * 16 ascii : ns * label (e.g. EEG Fpz-Cz or Body temp) (mind item 9 of the additional EDF+ specs)
+        ns * 80 ascii : ns * transducer type (e.g. AgAgCl electrode)
+        ns * 8 ascii : ns * physical dimension (e.g. uV or degreeC)
+        ns * 8 ascii : ns * physical minimum (e.g. -500 or 34)
+        ns * 8 ascii : ns * physical maximum (e.g. 500 or 40)
+        ns * 8 ascii : ns * digital minimum (e.g. -2048)
+        ns * 8 ascii : ns * digital maximum (e.g. 2047)
+        ns * 80 ascii : ns * prefiltering (e.g. HP:0.1Hz LP:75Hz)
+        ns * 8 ascii : ns * nr of samples in each data record
+        ns * 32 ascii : ns * reserved
+        -> bytes = 256 bytes X ns = 256 x 36 = 9216
+        -> total number of bytes =  256 + 9216 = 9472
+
+    DATA RECORD
+        nr of samples[1] * integer : first signal in the data record
+        nr of samples[2] * integer : second signal
+        ..
+        ..
+        nr of samples[ns] * integer : last signal
+        ex) 36 * 
+
     
     """
     
@@ -39,10 +77,9 @@ def read_edf_header(fname, message_win):
         sys.exit()
     else:
         try:
-            fid = open(fname, 'rb')
-            message_win.append('... opening {}'.format(fname))
-            edf_info = {}
-            with fid:
+            with open(fname, 'rb') as fid:
+                message_win.append('... opening {}'.format(fname))
+                edf_info = {}
                 
                 # 8 ascii : version of this data format (0)
                 fid.seek(8,0)  # version (unused here)
@@ -51,90 +88,176 @@ def read_edf_header(fname, message_win):
                 edf_info['patient_id'] = fid.read(80).decode('latin-1')
                 
                 # 80 ascii : local recording identification
+                # edf_info['rec_id'] = 'Startdate xx-XXX-xxxx X X X  
                 edf_info['rec_id'] = fid.read(80).decode('latin-1')
+
+                # in NATUS the local recording identification is missing (when the data is not anonymized)
+                # it starts with the startdate, starttime and number of bytes in header record concatenated
+                # '09.04.2421.46.169472    EDF+C                                       -1      1   '
+                # Pattern to detect the missing field
+                pattern = r'^\d{2}.\d{2}.\d{4}.\d{2}.\d+'
+                match = re.match(pattern, edf_info['rec_id'])
                 
-                # 8 ascii : startdate of recording (dd.mm.yy)
-                edf_info['startdate'] = fid.read(8).decode('latin-1')
+                # The field local recording identification is missing
+                if match:
+                    # The following fields are extracted from the local recording identification reading
+
+                    # 8 ascii : startdate of recording (dd.mm.yy)
+                    edf_info['startdate'] = edf_info['rec_id'][0:8]
+                    
+                    # 8 ascii : starttime of recording (hh.mm.ss)
+                    edf_info['starttime'] = edf_info['rec_id'][8:16]
+                    
+                    # 8 ascii : number of bytes in header record 
+                    hdr_nbytes = edf_info['rec_id'][16:24]
+                    try: 
+                        edf_info['hdr_nbytes'] = int(hdr_nbytes)
+                    except ValueError:
+                        edf_info['hdr_nbytes'] = hdr_nbytes
+                        message_win.append('hdr_nbytes not an integer')
+                    
+                    # 44 ascii : reserved
+                    edf_info['comment_44rsv'] = edf_info['rec_id'][24:68]
+
+                    # 8 ascii : number of data records
+                    # if -1 change it lower at the end
+                    n_records = edf_info['rec_id'][68:76]
+                    try:
+                        edf_info['n_records'] = int(n_records)
+                    except ValueError:
+                        edf_info['n_records'] = n_records
+                        message_win.append('n_records not an integer')
+                    
+                    # 8 ascii : duration of a data record, in seconds
+                    end_of_rec =fid.read(4)
+                    end_of_rec=end_of_rec.decode('latin-1')
+                    edf_info['record_length_sec'] = edf_info['rec_id'][76:80]+end_of_rec
+                    try : 
+                        edf_info['record_length_sec'] = float(edf_info['record_length_sec'])
+                    except ValueError:
+                        message_win.append('record_length_sec not a float')
+
+                    # Create a valid edf_info['rec_id'] of 80 characters
+                    edf_info['rec_id'] =  "Startdate X X X X                                                               "
+                else:
+                    # 8 ascii : startdate of recording (dd.mm.yy)
+                    edf_info['startdate'] = fid.read(8).decode('latin-1')
+                    
+                    # 8 ascii : starttime of recording (hh.mm.ss)
+                    edf_info['starttime'] = fid.read(8).decode('latin-1')
+                    
+                    # 8 ascii : number of bytes in header record
+                    hdr_nbytes = fid.read(8)
+                    try: 
+                        edf_info['hdr_nbytes'] = int(hdr_nbytes) 
+                    except ValueError:
+                        edf_info['hdr_nbytes'] = hdr_nbytes
+                        message_win.append('hdr_nbytes not an integer')
+                    
+                    # 44 ascii : reserved
+                    edf_info['comment_44rsv'] = fid.read(44).decode('latin-1')
                 
-                # 8 ascii : starttime of recording (hh.mm.ss)
-                edf_info['starttime'] = fid.read(8).decode('latin-1')
-                
-                # 8 ascii : number of bytes in header record
-                edf_info['hdr_nbytes'] = int(fid.read(8))
-                
-                # 44 ascii : reserved
-                edf_info['comment_44rsv'] = fid.read(44).decode('latin-1')
-                
-                # 8 ascii : number of data records
-                # if -1 change it !!!
-                edf_info['n_records'] = int(fid.read(8))
-                
-                # 8 ascii : duration of a data record, in seconds
-                edf_info['record_length_sec'] = float(fid.read(8))
+                    # 8 ascii : number of data records
+                    # if -1 change it !!!
+                    n_records = fid.read(8)
+                    try:
+                        edf_info['n_records'] = int(n_records)
+                    except ValueError:
+                        edf_info['n_records'] = n_records
+                        message_win.append('n_records not an integer')
+                    
+                    # 8 ascii : duration of a data record, in seconds
+                    edf_info['record_length_sec'] = float(fid.read(8))
                 
                 # 4 ascii : number of signals (ns) in data record
-                edf_info['nchan'] = int(fid.read(4))
+                nchan = fid.read(4)
+                try:
+                    edf_info['nchan'] = int(nchan)
+                except ValueError:
+                    edf_info['nchan'] = nchan
+                    message_win.append('nchan not an integer')
                 
+                header_size_before_chan = fid.tell()
+                if not (header_size_before_chan==256):
+                    message_win.append(f'The first part of the header is not the expected 256 bytes, it is {header_size_before_chan} bytes')
+
                 # ns * 16 ascii : ns * label
                 # e.g. EEG Fpz-Cz or Body temp
-                channels = list(range(edf_info.get('nchan')))
-                edf_info['ch_labels'] = [fid.read(16).decode('latin-1') for ch in channels]
-                
-                # ns * 80 ascii : ns * transducer type
-                # e.g. AgAgCl electrode
-                edf_info['transducer'] = [fid.read(80).decode('latin-1') for ch in channels]
-                
-                # ns * 8 ascii : ns * physical dimension
-                # e.g. uV or degreeC
-                edf_info['units'] = [fid.read(8).decode('latin-1') for ch in channels]
-            
-                # ns * 8 ascii : ns * physical minimum 
-                # e.g. -500 or 34
-                edf_info['physical_min'] = np.array([float(fid.read(8))
-                                         for ch in channels])
-                # e.g. 500 or 40
-                edf_info['physical_max'] = np.array([float(fid.read(8))
-                                         for ch in channels])
-                # e.g. -2048
-                digital_min = np.array([float(fid.read(8)) for ch in channels])
-                digital_min = np.rint(digital_min).astype(int)
-                edf_info['digital_min'] = digital_min
-                
-                # e.g. 2047
-                digital_max = np.array([float(fid.read(8)) for ch in channels])
-                edf_info['digital_max'] = np.rint(digital_max).astype(int)
-                
-                # ns * 80 ascii : ns * prefiltering
-                # e.g. HP:0.1Hz LP:75Hz
-                edf_info['prefiltering'] = [fid.read(80).decode('latin-1') for ch in channels][:]
-            
-                # number of samples per record
-                edf_info['n_samps_record'] = np.array([int(fid.read(8)) for ch in channels])
-                
-                # Last access of the edf header
-                # 32 reserved for each chan
-                comment_32rsv = []
-                for ch in channels:
-                    comment_32rsv.append(fid.read(32).decode('latin-1'))
-                edf_info['comment_32rsv'] = comment_32rsv
-                
-                # Save the real number of bytes in the header
-                edf_info['hdr_nbytes_real'] = fid.tell()
-                
-                # Verify the file size written in the edf header
-                fid.seek(0, 2) # 0 offset from the ebd of the file
-                n_bytes = fid.tell()
-                n_data_bytes = n_bytes - edf_info.get('hdr_nbytes')
-                total_samps = n_data_bytes // 2 # why 2 !!!!
-                read_records = total_samps // np.sum(edf_info.get('n_samps_record'))
-                edf_info['n_records_real'] = read_records
-                if edf_info.get('n_records') != read_records:
-                    err_message = 'Number of records from the header ({}) ' \
-                    'does not match the file size ({})' .format(edf_info.get('n_records'), \
-                        read_records)
-                    message_win.append(err_message)
+                if isinstance(edf_info['nchan'], int):
+                    channels = list(range(edf_info.get('nchan')))
+                    edf_info['ch_labels'] = [fid.read(16).decode('latin-1') for ch in channels]
                     
-                fid.close()
+                    # ns * 80 ascii : ns * transducer type
+                    # e.g. AgAgCl electrode
+                    edf_info['transducer'] = [fid.read(80).decode('latin-1') for ch in channels]
+                    
+                    # ns * 8 ascii : ns * physical dimension
+                    # e.g. uV or degreeC
+                    edf_info['units'] = [fid.read(8).decode('latin-1') for ch in channels]
+                
+                    # ns * 8 ascii : ns * physical minimum 
+                    # e.g. -500 or 34
+                    edf_info['physical_min'] = np.array([float(fid.read(8))
+                                            for ch in channels])
+                    # e.g. 500 or 40
+                    edf_info['physical_max'] = np.array([float(fid.read(8))
+                                            for ch in channels])
+                    # e.g. -2048
+                    digital_min = np.array([float(fid.read(8)) for ch in channels])
+                    digital_min = np.rint(digital_min).astype(int)
+                    edf_info['digital_min'] = digital_min
+                    
+                    # e.g. 2047
+                    digital_max = np.array([float(fid.read(8)) for ch in channels])
+                    edf_info['digital_max'] = np.rint(digital_max).astype(int)
+                    
+                    # ns * 80 ascii : ns * prefiltering
+                    # e.g. HP:0.1Hz LP:75Hz
+                    edf_info['prefiltering'] = [fid.read(80).decode('latin-1') for ch in channels][:]
+                
+                    # number of samples per record
+                    edf_info['n_samps_record'] = np.array([int(fid.read(8)) for ch in channels])
+                    
+                    # Last access of the edf header
+                    # 32 reserved for each chan
+                    comment_32rsv = []
+                    for ch in channels:
+                        comment_32rsv.append(fid.read(32).decode('latin-1'))
+                    edf_info['comment_32rsv'] = comment_32rsv
+                    
+                    # The 'hdr_nbytes' is used to read the data in the original file in order to write a new version of the file.
+                    # The write function will use the hdr_nbytes_real to make valid the new header of the file
+                    # The hdr_nbytes is automatically updated to reflect where the data is saved in the original file  
+                    edf_info['hdr_nbytes'] = fid.tell()
+                                        
+                    # Save the real number of bytes in the header in order to correct the edf header
+                    if match:
+                        edf_info['hdr_nbytes_real'] = fid.tell()+80
+                    else:
+                        edf_info['hdr_nbytes_real'] = fid.tell()
+
+                    # Verify the file size written in the edf header
+                    header_size_after_chan = fid.tell()-header_size_before_chan
+                    if not header_size_after_chan==(256*edf_info.get('nchan')):
+                        message_win.append(f'The second part of the header is not the expected {256*edf_info.get("nchan")} bytes, it is {header_size_after_chan} bytes')
+                    
+                    fid.seek(0, 2) # 0 offset from the end of the file
+                    n_bytes = fid.tell()
+                    n_data_bytes = n_bytes - edf_info.get('hdr_nbytes')
+                    total_samps = n_data_bytes // 2 # why 2 !!!!
+                    read_records = total_samps // np.sum(edf_info.get('n_samps_record'))
+                    edf_info['n_records_real'] = read_records
+                    
+                    if edf_info['n_records'] == -1:
+                        edf_info['n_records'] = read_records
+
+                    if edf_info.get('n_records') != read_records:
+                        err_message = 'Number of records from the header ({}) ' \
+                        'does not match the file size ({})' .format(edf_info.get('n_records'), \
+                            read_records)
+                        message_win.append(err_message)
+                    
+                #fid.close()
                 
             return edf_info            
             
@@ -231,7 +354,8 @@ def write_edf_hdr(fname, edf_info, message_win):
             fid.write(bytes(edf_info.get('starttime').ljust(8),encoding='latin-1'))
             
             # 8 ascii : number of bytes in header record
-            fid.write(bytes(str(edf_info.get('hdr_nbytes')).ljust(8),encoding='latin-1'))
+            fid.write(bytes(str(edf_info.get('hdr_nbytes_real')).ljust(8),encoding='latin-1'))
+            #fid.write(bytes(str(edf_info.get('hdr_nbytes')).ljust(8),encoding='latin-1'))
             
             # 44 ascii : reserved
             fid.write(bytes(edf_info.get('comment_44rsv').ljust(44),encoding='latin-1'))
