@@ -1,0 +1,6 @@
+{
+    "app_name": "EdfHdr_RW",
+    "author": "CÉAMS Hopital du Sacré-Coeur de Montréal",
+    "main_module": "src/main/python/main.py",
+    "version": "0.0.0"
+}
