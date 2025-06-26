@@ -935,6 +935,41 @@ def _modify_digital_val(val_to_mod, field_to_mod, nchan, ch_labels, message_win)
     return field_mod
 
 
+def _modify_n_samples_in_record(val_to_mod, field_to_mod, nchan, ch_labels, message_win):
+    """Modify the number of samples in a record for each channel from the edf header.
+        
+        Parameters i
+        -----------
+        val_to_mod : list of float
+            Values to update, the number of items in the list is the number of channels
+        field_to_mod : string
+            The field label to modify.
+        nchan : int
+            Number of channels.
+        ch_labels : list of strings
+            The label of each channels
+       
+        Returns
+        -----------
+        True if the field can be modified False otherwise 
+        
+    """    
+    message_win.append("You want to modify the {} to:".format(field_to_mod))
+    for i, cur_value in enumerate(val_to_mod):
+        message_win.append("{} ({})\t{}".format(i, ch_labels[i], cur_value))
+        
+    # verify the nchan
+    if len(val_to_mod) != nchan:
+        err_message = 'ERROR : {} {} provided and the edf file has {} channels'\
+            .format(len(val_to_mod), field_to_mod, nchan)
+        message_win.append(err_message)
+        err_message = '{} is not modified'.format(field_to_mod)
+        message_win.append(err_message)
+        return False
+    
+    return True
+
+
 def modify_edf_header(edf_info, field_to_mod, val_to_mod, message_win):
     """Modify the edf header of an EDF+
     
@@ -1192,6 +1227,10 @@ def modify_edf_header(edf_info, field_to_mod, val_to_mod, message_win):
                 
     # You cannot modify the number of samples in each data record for each channel
     elif field_to_mod == "n_samps_record":
+        # if _modify_n_samples_in_record(val_to_mod, field_to_mod, edf_info.get('nchan'),\
+        #                         edf_info.get('ch_labels'), message_win):
+        #     edf_info[field_to_mod] = val_to_mod
+        #     field_mod = True
         err_message = "ERROR : You can not change for now the {}, "\
             "use the pyedflib to modify the edf data".format(field_to_mod)
         message_win.append(err_message)
