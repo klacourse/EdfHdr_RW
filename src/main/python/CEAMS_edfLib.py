@@ -48,84 +48,111 @@ def read_edf_header(fname, message_win):
                 fid.seek(8,0)  # version (unused here)
                 
                 # 80 ascii : local patient identification
-                edf_info['patient_id'] = fid.read(80).decode('latin-1')
+                edf_info['patient_id'] = fid.read(80).decode('latin-1').replace('\x00', ' ')
                 
                 # 80 ascii : local recording identification
-                edf_info['rec_id'] = fid.read(80).decode('latin-1')
+                edf_info['rec_id'] = fid.read(80).decode('latin-1').replace('\x00', ' ')
                 
                 # 8 ascii : startdate of recording (dd.mm.yy)
-                edf_info['startdate'] = fid.read(8).decode('latin-1')
+                edf_info['startdate'] = fid.read(8).decode('latin-1').replace('\x00', ' ')
                 
                 # 8 ascii : starttime of recording (hh.mm.ss)
-                edf_info['starttime'] = fid.read(8).decode('latin-1')
+                edf_info['starttime'] = fid.read(8).decode('latin-1').replace('\x00', ' ')
                 
                 # 8 ascii : number of bytes in header record
-                edf_info['hdr_nbytes'] = int(fid.read(8))
+                hdr_nbytes = fid.read(8)
+                try: 
+                    edf_info['hdr_nbytes'] = int(hdr_nbytes.decode('latin-1').replace('\x00', '').strip())
+                except:
+                    err_message = f"Error reading the number of bytes in the header: {hdr_nbytes}"
+                    message_win.append(err_message)
+                    edf_info['hdr_nbytes'] = 0
                 
                 # 44 ascii : reserved
-                edf_info['comment_44rsv'] = fid.read(44).decode('latin-1')
+                edf_info['comment_44rsv'] = fid.read(44).decode('latin-1').replace('\x00', ' ')
                 
                 # 8 ascii : number of data records
-                # if -1 change it !!!
-                edf_info['n_records'] = int(fid.read(8))
+                n_records = fid.read(8)
+                try:
+                    edf_info['n_records'] = int(n_records.decode('latin-1').replace('\x00', '').strip())
+                except:
+                    err_message = f"Error reading the number of records: {n_records}"
+                    message_win.append(err_message)
+                    edf_info['n_records'] = 0
                 
                 # 8 ascii : duration of a data record, in seconds
-                edf_info['record_length_sec'] = float(fid.read(8))
+                record_length_sec = fid.read(8)
+                try:
+                    edf_info['record_length_sec'] = float(record_length_sec.decode('latin-1').replace('\x00', '').strip())
+                except:
+                    err_message = f"Error reading the duration of a data record: {record_length_sec}"
+                    message_win.append(err_message)
+                    edf_info['record_length_sec'] = 0
+
                 
                 # 4 ascii : number of signals (ns) in data record
-                edf_info['nchan'] = int(fid.read(4))
+                nchan = fid.read(4)
+                try:
+                    edf_info['nchan'] = int(nchan.decode('latin-1').replace('\x00', '').strip())
+                except:
+                    err_message = f"Error reading the number of channels: {nchan}"
+                    message_win.append(err_message)
+                    edf_info['nchan'] = 0
                 
                 # ns * 16 ascii : ns * label
                 # e.g. EEG Fpz-Cz or Body temp
                 channels = list(range(edf_info.get('nchan')))
-                edf_info['ch_labels'] = [fid.read(16).decode('latin-1') for ch in channels]
+                edf_info['ch_labels'] = [fid.read(16).decode('latin-1').replace('\x00', ' ') for ch in channels]
                 
                 # ns * 80 ascii : ns * transducer type
                 # e.g. AgAgCl electrode
-                edf_info['transducer'] = [fid.read(80).decode('latin-1') for ch in channels]
+                edf_info['transducer'] = [fid.read(80).decode('latin-1').replace('\x00', ' ') for ch in channels]
                 
                 # ns * 8 ascii : ns * physical dimension
                 # e.g. uV or degreeC
-                edf_info['units'] = [fid.read(8).decode('latin-1') for ch in channels]
-            
+                edf_info['units'] = [fid.read(8).decode('latin-1').replace('\x00', ' ') for ch in channels]
+                # Replace µV by uV
+                for i, unit in enumerate(edf_info['units']):
+                    edf_info['units'][i] = unit.replace('µ', 'u')
+
                 # ns * 8 ascii : ns * physical minimum 
                 # e.g. -500 or 34
-                edf_info['physical_min'] = np.array([float(fid.read(8))
+                edf_info['physical_min'] = np.array([float(fid.read(8).decode('latin-1').replace('\x00', '').strip())
                                          for ch in channels])
                 # e.g. 500 or 40
-                edf_info['physical_max'] = np.array([float(fid.read(8))
+                edf_info['physical_max'] = np.array([float(fid.read(8).decode('latin-1').replace('\x00', '').strip())
                                          for ch in channels])
                 # e.g. -2048
-                digital_min = np.array([float(fid.read(8)) for ch in channels])
+                digital_min = np.array([float(fid.read(8).decode('latin-1').replace('\x00', '').strip()) for ch in channels])
                 digital_min = np.rint(digital_min).astype(int)
                 edf_info['digital_min'] = digital_min
                 
                 # e.g. 2047
-                digital_max = np.array([float(fid.read(8)) for ch in channels])
+                digital_max = np.array([float(fid.read(8).decode('latin-1').replace('\x00', '').strip()) for ch in channels])
                 edf_info['digital_max'] = np.rint(digital_max).astype(int)
                 
                 # ns * 80 ascii : ns * prefiltering
                 # e.g. HP:0.1Hz LP:75Hz
-                edf_info['prefiltering'] = [fid.read(80).decode('latin-1') for ch in channels][:]
+                edf_info['prefiltering'] = [fid.read(80).decode('latin-1').replace('\x00', ' ') for ch in channels][:]
             
                 # number of samples per record
-                edf_info['n_samps_record'] = np.array([int(fid.read(8)) for ch in channels])
+                edf_info['n_samps_record'] = np.array([int(fid.read(8).decode('latin-1').replace('\x00', '').strip()) for ch in channels])
                 
                 # Last access of the edf header
                 # 32 reserved for each chan
                 comment_32rsv = []
                 for ch in channels:
-                    comment_32rsv.append(fid.read(32).decode('latin-1'))
+                    comment_32rsv.append(fid.read(32).decode('latin-1').replace('\x00', ' '))
                 edf_info['comment_32rsv'] = comment_32rsv
                 
                 # Save the real number of bytes in the header
                 edf_info['hdr_nbytes_real'] = fid.tell()
                 
                 # Verify the file size written in the edf header
-                fid.seek(0, 2) # 0 offset from the ebd of the file
+                fid.seek(0, 2) # 0 offset from the end of the file
                 n_bytes = fid.tell()
                 n_data_bytes = n_bytes - edf_info.get('hdr_nbytes')
-                total_samps = n_data_bytes // 2 # why 2 !!!!
+                total_samps = n_data_bytes // 2 # why 2 !!!
                 read_records = total_samps // np.sum(edf_info.get('n_samps_record'))
                 edf_info['n_records_real'] = read_records
                 if edf_info.get('n_records') != read_records:
@@ -624,7 +651,7 @@ def _modify_text(val_to_mod, field_to_mod, nchan, ch_labels, message_win):
                   "The {} field offers {} ASCII characters. Specify filter as follow:\n"\
                   "-High pass : HP:xHz\n-Low pass : LP:XHz\n-Notch : NXHz\n"\
                   " Ex: HP:0.1Hz LP:75Hz N:60Hz\n"\
-                  "see https://www.edfplus.info/specs/edfplus.html#additionalspecs\n"\
+                  "see https://www.edfplus.info/specs/edftexts.html#additionalspecs\n"\
                   "*{} of the 'EDF Annotations' channel must be filled with spaces\n"\
                   " MAKE SURE YOU RESPECT THE MAX OF {} ASCII CHAR\n"\
                   "-------------------------------------------------------------------\n"\
