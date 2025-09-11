@@ -117,26 +117,94 @@ def read_edf_header(fname, message_win):
 
                 # ns * 8 ascii : ns * physical minimum 
                 # e.g. -500 or 34
-                edf_info['physical_min'] = np.array([float(fid.read(8).decode('latin-1').replace('\x00', '').strip())
-                                         for ch in channels])
+                # read first and then convert to float in order to catch the error
+                physical_mins = np.array([fid.read(8).decode('latin-1').replace('\x00', '').strip() for ch in channels]) 
+                edf_info['physical_min'] = np.zeros(len(physical_mins))
+                for i, physical_min in enumerate(physical_mins):
+                    if len(physical_min) > 0:
+                        try:
+                            edf_info['physical_min'][i] = float(physical_min)
+                        except:
+                            err_message = f"Error reading the physical minimum: {physical_min} for the channel {edf_info['ch_labels'][i]}"
+                            message_win.append(err_message)
+                    else:
+                        err_message = f"Error reading the physical minimum: {physical_min} for the channel {edf_info['ch_labels'][i]}"
+                        message_win.append(err_message)
+                        err_message = f"Value is replaced by 0"
+                        message_win.append(err_message)
+                # edf_info['physical_min'] = np.array([float(fid.read(8).decode('latin-1').replace('\x00', '').strip())
+                #                          for ch in channels])
                 # e.g. 500 or 40
-                edf_info['physical_max'] = np.array([float(fid.read(8).decode('latin-1').replace('\x00', '').strip())
-                                         for ch in channels])
+                # edf_info['physical_max'] = np.array([float(fid.read(8).decode('latin-1').replace('\x00', '').strip())
+                #                          for ch in channels])
+                physical_maxs = np.array([fid.read(8).decode('latin-1').replace('\x00', '').strip() for ch in channels]) 
+                edf_info['physical_max'] = np.zeros(len(physical_maxs))
+                for i, physical_max in enumerate(physical_maxs):
+                    if len(physical_max) > 0:
+                        try:
+                            edf_info['physical_max'][i] = float(physical_max)
+                        except:
+                            err_message = f"Error reading the physical maximum: {physical_max} for the channel {edf_info['ch_labels'][i]}"
+                            message_win.append(err_message)
+                    else:
+                        err_message = f"Error reading the physical maximum: {physical_max} for the channel {edf_info['ch_labels'][i]}"
+                        message_win.append(err_message)
+                        err_message = f"Value is replaced by 0"
+                        message_win.append(err_message)
+                
                 # e.g. -2048
-                digital_min = np.array([float(fid.read(8).decode('latin-1').replace('\x00', '').strip()) for ch in channels])
-                digital_min = np.rint(digital_min).astype(int)
-                edf_info['digital_min'] = digital_min
-                
+                digital_mins = np.array([fid.read(8).decode('latin-1').replace('\x00', '').strip() for ch in channels])
+                edf_info['digital_min'] = np.zeros(len(digital_mins), dtype=int)
+                for i, digital_min in enumerate(digital_mins):
+                    if len(digital_min) > 0:
+                        try:
+                            edf_info['digital_min'][i] = int(float(digital_min))
+                        except:
+                            err_message = f"Error reading the digital minimum: {digital_min} for the channel {edf_info['ch_labels'][i]}"
+                            message_win.append(err_message)
+                    else:
+                        err_message = f"Error reading the digital minimum: {digital_min} for the channel {edf_info['ch_labels'][i]}"
+                        message_win.append(err_message)
+                        err_message = f"Value is replaced by 0"
+                        message_win.append(err_message)
+                edf_info['digital_min'].astype(int)
+
                 # e.g. 2047
-                digital_max = np.array([float(fid.read(8).decode('latin-1').replace('\x00', '').strip()) for ch in channels])
-                edf_info['digital_max'] = np.rint(digital_max).astype(int)
-                
+                digital_maxs = np.array([fid.read(8).decode('latin-1').replace('\x00', '').strip() for ch in channels])
+                edf_info['digital_max'] = np.zeros(len(digital_maxs), dtype=int)
+                for i, digital_max in enumerate(digital_maxs):
+                    if len(digital_max) > 0:
+                        try:
+                            edf_info['digital_max'][i] = int(float(digital_max))
+                        except:
+                            err_message = f"Error reading the digital maximum: {digital_max} for the channel {edf_info['ch_labels'][i]}"
+                            message_win.append(err_message)
+                    else:
+                        err_message = f"Error reading the digital maximum: {digital_max} for the channel {edf_info['ch_labels'][i]}"
+                        message_win.append(err_message)
+                        err_message = f"Value is replaced by 0"
+                        message_win.append(err_message)
+                edf_info['digital_max'].astype(int)
+
                 # ns * 80 ascii : ns * prefiltering
                 # e.g. HP:0.1Hz LP:75Hz
                 edf_info['prefiltering'] = [fid.read(80).decode('latin-1').replace('\x00', ' ') for ch in channels][:]
             
                 # number of samples per record
-                edf_info['n_samps_record'] = np.array([int(fid.read(8).decode('latin-1').replace('\x00', '').strip()) for ch in channels])
+                n_samps_record = np.array([fid.read(8).decode('latin-1').replace('\x00', '').strip() for ch in channels])
+                edf_info['n_samps_record'] = np.zeros(len(n_samps_record), dtype=int)
+                for i, n_samp in enumerate(n_samps_record):
+                    if len(n_samp) > 0:
+                        try:
+                            edf_info['n_samps_record'][i] = int(n_samp)
+                        except ValueError:
+                            err_message = f"Error reading the number of samples per record: {n_samp} for the channel {edf_info['ch_labels'][i]}"
+                            message_win.append(err_message)
+                    else:
+                        err_message = f"Error reading the number of samples per record: {n_samp} for the channel {edf_info['ch_labels'][i]}"
+                        message_win.append(err_message)
+                        err_message = f"Value is replaced by 0"
+                        message_win.append(err_message)
                 
                 # Last access of the edf header
                 # 32 reserved for each chan
